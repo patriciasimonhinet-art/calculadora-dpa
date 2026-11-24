@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Calculadora DPA - Pronóstico de Demanda</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top">
+      <div>
+        <h1>Calculadora DPA</h1>
+        <p class="subtitle">Modelo Híbrido Contractual + Holt-Winters</p>
+      </div>
+      <span id="phaseBadge" class="badge phase-1">Fase 1: Arranque</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Tarjeta de Resultado Principal -->
+    <section class="result-card" aria-live="polite">
+      <div class="result-main">
+        <span class="result-label">Demanda Pronosticada Ajustada ($DPA_t$)</span>
+        <div class="result-value" id="dpaOutput">0</div>
+        <span class="result-unit">unidades / cajas recomendadas</span>
+      </div>
+      <div class="result-breakdown">
+        <div class="breakdown-item">
+          <span class="b-label">Piso Contractual</span>
+          <span class="b-val" id="floorOutput">0</span>
+        </div>
+        <div class="breakdown-item">
+          <span class="b-label">Estadístico + Flex</span>
+          <span class="b-val" id="statFlexOutput">0</span>
+        </div>
+        <div class="breakdown-item">
+          <span class="b-label">Stock Seguridad</span>
+          <span class="b-val" id="ssOutput">0</span>
+        </div>
+      </div>
+      <div id="driverNote" class="driver-note">Calculando...</div>
+    </section>
+
+    <!-- Selector de Fase y Semana -->
+    <section class="card">
+      <h2>1. Etapa del Cliente</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="weekNum">Semana Actual (t)</label>
+          <input type="number" id="weekNum" min="1" value="1" inputmode="numeric" />
+        </div>
+        <div class="field">
+          <label for="phaseMode">Modo de Fase</label>
+          <select id="phaseMode">
+            <option value="auto">Automático (Sem 1-8 / 9+)</option>
+            <option value="1">Forzar Fase 1 (Arranque)</option>
+            <option value="2">Forzar Fase 2 (Consolidación)</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Parámetros Contractuales y Flexibilidad -->
+    <section class="card">
+      <h2>2. Contrato y Flexibilidad</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="contractDemand">Demanda Contrato (C_t)</label>
+          <input type="number" id="contractDemand" min="0" step="1" value="100" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="tau">Tolerancia Caída τ (%)</label>
+          <input type="number" id="tau" min="0" max="100" step="1" value="15" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="flexPlus">Colchón Flex + (F_t)</label>
+          <input type="number" id="flexPlus" min="0" step="1" value="20" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="flexType">Tipo de F_t</label>
+          <select id="flexType">
+            <option value="units">Unidades fijas</option>
+            <option value="percent">% sobre C_t</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Parámetros Estadísticos -->
+    <section class="card">
+      <h2>3. Pronóstico Estadístico (D̂_Estd,t)</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="levelPrev">Nivel Anterior (L_t-1)</label>
+          <input type="number" id="levelPrev" min="0" step="0.1" value="100" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="alpha">Suavizado α (0 - 1)</label>
+          <input type="number" id="alpha" min="0" max="1" step="0.05" value="0.35" inputmode="decimal" />
+        </div>
+      </div>
+
+      <!-- Controles exclusivos Fase 2 -->
+      <div id="phase2Controls" class="phase2-box hidden">
+        <div class="phase2-title">Componentes Holt-Winters (Fase 2)</div>
+        <div class="grid-3">
+          <div class="field">
+            <label for="trendPrev">Tendencia (b_t-1)</label>
+            <input type="number" id="trendPrev" step="0.1" value="2" inputmode="decimal" />
+          </div>
+          <div class="field">
+            <label for="seasonality">Estacional. (S_t-m)</label>
+            <input type="number" id="seasonality" min="0.1" step="0.05" value="1.0" inputmode="decimal" />
+          </div>
+          <div class="field">
+            <label for="beta">Suavizado β</label>
+            <input type="number" id="beta" min="0" max="1" step="0.05" value="0.15" inputmode="decimal" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Inventario de Seguridad -->
+    <section class="card">
+      <h2>4. Inventario de Seguridad (SS_t)</h2>
+      <div class="grid-3">
+        <div class="field">
+          <label for="kFactor">Factor Servicio (k)</label>
+          <select id="kFactor">
+            <option value="1.28">90% (1.28)</option>
+            <option value="1.65" selected>95% (1.65)</option>
+            <option value="2.05">98% (2.05)</option>
+            <option value="2.33">99% (2.33)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sigmaError">Desv. Error (σ)</label>
+          <input type="number" id="sigmaError" min="0" step="0.1" value="10" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="leadTime">Lead Time (sem)</label>
+          <input type="number" id="leadTime" min="0.1" step="0.5" value="1" inputmode="decimal" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Registro de Demanda Real e Historial Semanal -->
+    <section class="card">
+      <h2>5. Cierre Semanal y Aprendizaje</h2>
+      <p class="helper-text">Introduce la demanda real al cerrar la semana para actualizar automáticamente L, b, σ y avanzar a la semana siguiente.</p>
+      <div class="close-week-row">
+        <div class="field flex-1">
+          <label for="actualDemand">Demanda Real Observada (D_t)</label>
+          <input type="number" id="actualDemand" min="0" step="1" placeholder="Ej. 112" inputmode="decimal" />
+        </div>
+        <button id="btnRecordWeek" class="btn-primary">Registrar y Avanzar</button>
+      </div>
+
+      <div class="history-header">
+        <h3>Historial Guardado</h3>
+        <button id="btnClearHistory" class="btn-ghost">Reiniciar</button>
+      </div>
+      <div class="table-wrapper">
+        <table id="historyTable">
+          <thead>
+            <tr>
+              <th>Sem</th>
+              <th>Fase</th>
+              <th>Contrato</th>
+              <th>DPA</th>
+              <th>Real</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="6" class="empty-row">Sin semanas registradas aún</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
